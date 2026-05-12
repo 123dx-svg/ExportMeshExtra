@@ -1,0 +1,17 @@
+# UE Plugin build artifacts
+Binaries/
+Intermediate/
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# IDE
+.vs/
+.vscode/
+*.suo
+*.user
+*.sln.docstates
+
+# Claude Code
+.claude/
