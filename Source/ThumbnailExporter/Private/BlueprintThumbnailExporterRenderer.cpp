@@ -166,7 +166,7 @@ void UBlueprintThumbnailExporterRenderer::DrawThumbnailWithConfig(FThumbnailCrea
 			ViewFamily.EngineShowFlags.Grain = 0;
 			ViewFamily.EngineShowFlags.Atmosphere = 0;
 			ViewFamily.EngineShowFlags.LOD = 0;
-			ViewFamily.EngineShowFlags.AntiAliasing = 0;
+			ViewFamily.EngineShowFlags.AntiAliasing = CreationParams.CreationConfig.bEnableAntiAliasing ? 1 : 0;
 			ViewFamily.EngineShowFlags.PostProcessMaterial = 0;
 			ViewFamily.EngineShowFlags.Translucency = 1;
 			ViewFamily.EngineShowFlags.SeparateTranslucency = 1;
@@ -195,6 +195,21 @@ void UBlueprintThumbnailExporterRenderer::DrawThumbnailWithConfig(FThumbnailCrea
 
 		FSceneView* View = ThumbnailScene->CreateView(&ViewFamily, 0, 0, CreationParams.Width, CreationParams.Height);
 		View->BackgroundColor = CreationParams.CreationConfig.GetAdjustedBackgroundColor();
+
+		// 曝光锁定：使用手动 EV 偏移，禁用自动曝光，避免不同资产的明暗漂移。
+		if (!CreationParams.bIsAlpha && CreationParams.CreationConfig.bLockExposure)
+		{
+			FFinalPostProcessSettings& PP = View->FinalPostProcessSettings;
+			PP.bOverride_AutoExposureMethod = true;
+			PP.AutoExposureMethod = EAutoExposureMethod::AEM_Manual;
+			PP.bOverride_AutoExposureBias = true;
+			PP.AutoExposureBias = CreationParams.CreationConfig.ManualExposureBias;
+			PP.bOverride_AutoExposureMinBrightness = true;
+			PP.AutoExposureMinBrightness = 1.0f;
+			PP.bOverride_AutoExposureMaxBrightness = true;
+			PP.AutoExposureMaxBrightness = 1.0f;
+			ViewFamily.EngineShowFlags.EyeAdaptation = 0;
+		}
 
 		RenderViewFamily(CreationParams.Canvas, &ViewFamily, View);
 

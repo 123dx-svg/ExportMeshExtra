@@ -165,6 +165,103 @@ static void ResizeImageBilinear(const TArray<FColor>& Src, int32 SrcWidth, int32
 	}
 }
 
+// 整数倍 box 下采样：将每个 N×N 像素块平均，得到平滑的反走样结果。
+// 失败时返回 false，调用方应回退到双线性。
+static bool ResizeImageBoxIntegerDownsample(const TArray<FColor>& Src, int32 SrcWidth, int32 SrcHeight, TArray<FColor>& Dst, int32 DstWidth, int32 DstHeight)
+{
+	if (DstWidth <= 0 || DstHeight <= 0 || SrcWidth <= 0 || SrcHeight <= 0)
+	{
+		return false;
+	}
+	if ((SrcWidth % DstWidth) != 0 || (SrcHeight % DstHeight) != 0)
+	{
+		return false;
+	}
+	const int32 StepX = SrcWidth / DstWidth;
+	const int32 StepY = SrcHeight / DstHeight;
+	if (StepX <= 1 && StepY <= 1)
+	{
+		return false;
+	}
+	Dst.SetNumUninitialized(DstWidth * DstHeight);
+	const float InvSampleCount = 1.0f / static_cast<float>(StepX * StepY);
+	for (int32 Y = 0; Y < DstHeight; ++Y)
+	{
+		for (int32 X = 0; X < DstWidth; ++X)
+		{
+			int32 SumR = 0, SumG = 0, SumB = 0, SumA = 0;
+			const int32 BaseX = X * StepX;
+			const int32 BaseY = Y * StepY;
+			for (int32 Ky = 0; Ky < StepY; ++Ky)
+			{
+				const int32 SrcY = BaseY + Ky;
+				for (int32 Kx = 0; Kx < StepX; ++Kx)
+				{
+					const FColor& C = Src[SrcY * SrcWidth + (BaseX + Kx)];
+					SumR += C.R; SumG += C.G; SumB += C.B; SumA += C.A;
+				}
+			}
+			Dst[Y * DstWidth + X] = FColor(
+				static_cast<uint8>(FMath::Clamp(FMath::RoundToInt(SumR * InvSampleCount), 0, 255)),
+				static_cast<uint8>(FMath::Clamp(FMath::RoundToInt(SumG * InvSampleCount), 0, 255)),
+				static_cast<uint8>(FMath::Clamp(FMath::RoundToInt(SumB * InvSampleCount), 0, 255)),
+				static_cast<uint8>(FMath::Clamp(FMath::RoundToInt(SumA * InvSampleCount), 0, 255)));
+		}
+	}
+	return true;
+}
+
+// 轻微 Unsharp 锐化（3x3）：使用 box blur 估计低通，再做 (1+a)*src - a*blur。
+// Amount = 0 → 无效；推荐 0.15~0.5。
+static void ApplyMildUnsharp(TArray<uint8>& InOutData, int32 Width, int32 Height, float Amount)
+{
+	if (Amount <= KINDA_SMALL_NUMBER || Width < 3 || Height < 3)
+	{
+		return;
+	}
+	if (InOutData.Num() != Width * Height * static_cast<int32>(sizeof(FColor)))
+	{
+		return;
+	}
+	FColor* Src = reinterpret_cast<FColor*>(InOutData.GetData());
+	TArray<FColor> Tmp;
+	Tmp.SetNumUninitialized(Width * Height);
+	FMemory::Memcpy(Tmp.GetData(), Src, Width * Height * sizeof(FColor));
+
+	auto Sample = [&](int32 X, int32 Y) -> const FColor&
+	{
+		return Tmp[FMath::Clamp(Y, 0, Height - 1) * Width + FMath::Clamp(X, 0, Width - 1)];
+	};
+
+	const float OneMinus = 1.0f + Amount;
+	const float BlurW = Amount / 9.0f;
+
+	for (int32 Y = 0; Y < Height; ++Y)
+	{
+		for (int32 X = 0; X < Width; ++X)
+		{
+			float SumR = 0.0f, SumG = 0.0f, SumB = 0.0f;
+			for (int32 Dy = -1; Dy <= 1; ++Dy)
+			{
+				for (int32 Dx = -1; Dx <= 1; ++Dx)
+				{
+					const FColor& C = Sample(X + Dx, Y + Dy);
+					SumR += C.R; SumG += C.G; SumB += C.B;
+				}
+			}
+			const FColor& Center = Tmp[Y * Width + X];
+			const float R = Center.R * OneMinus - SumR * BlurW;
+			const float G = Center.G * OneMinus - SumG * BlurW;
+			const float B = Center.B * OneMinus - SumB * BlurW;
+			FColor& Out = Src[Y * Width + X];
+			Out.R = static_cast<uint8>(FMath::Clamp(FMath::RoundToInt(R), 0, 255));
+			Out.G = static_cast<uint8>(FMath::Clamp(FMath::RoundToInt(G), 0, 255));
+			Out.B = static_cast<uint8>(FMath::Clamp(FMath::RoundToInt(B), 0, 255));
+			// Alpha 保持不变
+		}
+	}
+}
+
 static void AutoCropAndScaleThumbnail(FObjectThumbnail& Thumbnail, int32 MaxEdgeSize, bool bCropX, bool bCropY)
 {
 	if (MaxEdgeSize <= 0)
@@ -481,14 +578,20 @@ void FThumbnailExporterRenderer::RenderThumbnail(FThumbnailCreationConfig& Creat
 	// Renderer must be initialized before generating thumbnails
 	check(GIsRHIInitialized);
 
+	// 超采样：以 EffWidth * EffHeight 的高分辨率渲染并完成所有 Alpha 推导，
+	// 最终在写入 AutoCrop 之前再 box 下采样到目标分辨率以获得反走样效果。
+	const uint32 SuperScale = static_cast<uint32>(FMath::Clamp(CreationConfig.SuperSampleScale, 1, 8));
+	const uint32 EffWidth = InImageWidth * SuperScale;
+	const uint32 EffHeight = InImageHeight * SuperScale;
+
 	// Store dimensions
 	if (OutThumbnail)
 	{
-		OutThumbnail->SetImageSize(InImageWidth, InImageHeight);
+		OutThumbnail->SetImageSize(EffWidth, EffHeight);
 	}
 
-	FThumbnailRenderTargetResource LDRThumbnail = CreateThumbnailRenderTarget(InImageWidth, InImageHeight, CreationConfig.GetAdjustedBackgroundColor());
-	FThumbnailRenderTargetResource AlphaThumbnail = CreateThumbnailRenderTarget(InImageWidth, InImageHeight, CreationConfig.GetAdjustedBackgroundColor());
+	FThumbnailRenderTargetResource LDRThumbnail = CreateThumbnailRenderTarget(EffWidth, EffHeight, CreationConfig.GetAdjustedBackgroundColor());
+	FThumbnailRenderTargetResource AlphaThumbnail = CreateThumbnailRenderTarget(EffWidth, EffHeight, CreationConfig.GetAdjustedBackgroundColor());
 
 	// Get the rendering info for this object
 	FThumbnailRenderingInfo* RenderInfo = GUnrealEd ? GUnrealEd->GetThumbnailManager()->GetRenderingInfo(UThumbnailExporterThumbnailDummy::StaticClass()->ClassDefaultObject) : nullptr;
@@ -534,8 +637,8 @@ void FThumbnailExporterRenderer::RenderThumbnail(FThumbnailCreationConfig& Creat
 			LdrConfig.ThumbnailCompositeMode = ESceneCaptureCompositeMode::SCCM_Overwrite;
 			FThumbnailCreationParams CreationParams(LdrConfig);
 			CreationParams.Object = InObject;
-			CreationParams.Width = InImageWidth;
-			CreationParams.Height = InImageHeight;
+			CreationParams.Width = EffWidth;
+			CreationParams.Height = EffHeight;
 			CreationParams.bIsAlpha = false;
 			CreationParams.RenderTarget = LDRThumbnail.RenderTargetResource;
 			CreationParams.Canvas = &LDRThumbnail.Canvas;
@@ -550,8 +653,8 @@ void FThumbnailExporterRenderer::RenderThumbnail(FThumbnailCreationConfig& Creat
 			FThumbnailCreationConfig AlphaConfig = CreationConfig;
 			FThumbnailCreationParams CreationParams(AlphaConfig);
 			CreationParams.Object = InObject;
-			CreationParams.Width = InImageWidth;
-			CreationParams.Height = InImageHeight;
+			CreationParams.Width = EffWidth;
+			CreationParams.Height = EffHeight;
 			CreationParams.bIsAlpha = true;
 			CreationParams.RenderTarget = AlphaThumbnail.RenderTargetResource;
 			CreationParams.Canvas = &AlphaThumbnail.Canvas;
@@ -604,7 +707,7 @@ void FThumbnailExporterRenderer::RenderThumbnail(FThumbnailCreationConfig& Creat
 			const FLinearColor BaseBackground = CreationConfig.ThumbnailBackground;
 			const FLinearColor AltBackground = PickAlternateBackground(BaseBackground);
 
-			FThumbnailRenderTargetResource AltLDRThumbnail = CreateThumbnailRenderTarget(InImageWidth, InImageHeight, AltBackground);
+			FThumbnailRenderTargetResource AltLDRThumbnail = CreateThumbnailRenderTarget(EffWidth, EffHeight, AltBackground);
 
 			{
 				FThumbnailCreationConfig AltConfig = CreationConfig;
@@ -613,8 +716,8 @@ void FThumbnailExporterRenderer::RenderThumbnail(FThumbnailCreationConfig& Creat
 				AltConfig.ThumbnailCompositeMode = ESceneCaptureCompositeMode::SCCM_Overwrite;
 				FThumbnailCreationParams CreationParams(AltConfig);
 				CreationParams.Object = InObject;
-				CreationParams.Width = InImageWidth;
-				CreationParams.Height = InImageHeight;
+				CreationParams.Width = EffWidth;
+				CreationParams.Height = EffHeight;
 				CreationParams.bIsAlpha = false;
 				CreationParams.RenderTarget = AltLDRThumbnail.RenderTargetResource;
 				CreationParams.Canvas = &AltLDRThumbnail.Canvas;
@@ -767,6 +870,33 @@ void FThumbnailExporterRenderer::RenderThumbnail(FThumbnailCreationConfig& Creat
 					}
 				}
 			}
+		}
+
+		// 超采样下采样：把高分辨率工作缓冲下采样到目标尺寸（box 整数下采样优先，否则双线性）。
+		if (SuperScale > 1)
+		{
+			TArray<FColor> SrcPixels;
+			SrcPixels.SetNumUninitialized(EffWidth * EffHeight);
+			FMemory::Memcpy(SrcPixels.GetData(), OutData.GetData(), EffWidth * EffHeight * sizeof(FColor));
+
+			TArray<FColor> DstPixels;
+			if (!ResizeImageBoxIntegerDownsample(SrcPixels, EffWidth, EffHeight, DstPixels, InImageWidth, InImageHeight))
+			{
+				ResizeImageBilinear(SrcPixels, EffWidth, EffHeight, DstPixels, InImageWidth, InImageHeight);
+			}
+
+			OutThumbnail->SetImageSize(InImageWidth, InImageHeight);
+			TArray<uint8>& Final = OutThumbnail->AccessImageData();
+			Final.Empty();
+			Final.AddUninitialized(InImageWidth * InImageHeight * sizeof(FColor));
+			FMemory::Memcpy(Final.GetData(), DstPixels.GetData(), InImageWidth * InImageHeight * sizeof(FColor));
+		}
+
+		// 可选的轻锐化（在目标分辨率上做）
+		if (CreationConfig.bEnableMildSharpen && CreationConfig.SharpenAmount > KINDA_SMALL_NUMBER)
+		{
+			TArray<uint8>& Final = OutThumbnail->AccessImageData();
+			ApplyMildUnsharp(Final, OutThumbnail->GetImageWidth(), OutThumbnail->GetImageHeight(), CreationConfig.SharpenAmount);
 		}
 
 		if (CreationConfig.bAutoThumbnailSizeX || CreationConfig.bAutoThumbnailSizeY)

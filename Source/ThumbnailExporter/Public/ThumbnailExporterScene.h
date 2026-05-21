@@ -71,4 +71,9 @@ protected:
 
 	/** The blueprint that is currently being rendered. NULL when not rendering. */
 	TWeakObjectPtr<class UBlueprint> CurrentBlueprint;
+
+	/** Spawned 3-point light actors (lazy). */
+	TWeakObjectPtr<class ADirectionalLight> KeyLightActor;
+	TWeakObjectPtr<class ADirectionalLight> FillLightActor;
+	TWeakObjectPtr<class ADirectionalLight> RimLightActor;
 };

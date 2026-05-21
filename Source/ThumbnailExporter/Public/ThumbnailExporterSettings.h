@@ -38,6 +38,23 @@ struct FThumbnailCreationConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "Thumbnail|Texture", meta = (ClampMin = 256, UIMin = 256))
 		int32 ThumbnailSize = 256;
 
+	// 超采样倍数：以 ThumbnailSize * N 的分辨率渲染，再下采样到目标尺寸，可显著缓解锯齿。
+	// 1 = 不超采样；2~4 推荐；>4 性能开销大。
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "Thumbnail|Texture", meta = (ClampMin = 1, ClampMax = 8, UIMin = 1, UIMax = 8))
+		int32 SuperSampleScale = 2;
+
+	// 是否启用引擎的 AntiAliasing show flag（与超采样可叠加）。
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "Thumbnail|Texture")
+		bool bEnableAntiAliasing = true;
+
+	// 下采样后是否做一次轻微 Unsharp 锐化，弥补 box 下采样略软的问题。
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "Thumbnail|Texture")
+		bool bEnableMildSharpen = false;
+
+	// 锐化强度（0 = 无效，1 = 中等，2 = 较强）。
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "Thumbnail|Texture", meta = (EditCondition = "bEnableMildSharpen", ClampMin = 0.0, ClampMax = 2.0, UIMin = 0.0, UIMax = 2.0))
+		float SharpenAmount = 0.25f;
+
 	// If true, the output image will be cropped to the visible bounds on the X axis (left and right)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "Thumbnail|Texture")
 		bool bAutoThumbnailSizeX = false;
@@ -91,6 +108,30 @@ struct FThumbnailCreationConfig
 	// 天空光强度倍数（影响玻璃/金属的反射效果）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "Thumbnail|Scene", meta = (EditCondition = "bEnableReflections", ClampMin = 0.1, ClampMax = 10.0, UIMin = 0.1, UIMax = 10.0))
 		float SkyLightIntensity = 1.0f;
+
+	// 锁定曝光：使用手动曝光偏移，避免不同资产由于自动曝光导致明暗不一致。
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "Thumbnail|Scene")
+		bool bLockExposure = false;
+
+	// 手动曝光偏移值（仅在 bLockExposure 启用时生效，单位 EV）。
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "Thumbnail|Scene", meta = (EditCondition = "bLockExposure", ClampMin = -5.0, ClampMax = 5.0, UIMin = -5.0, UIMax = 5.0))
+		float ManualExposureBias = 0.0f;
+
+	// 启用 3 点光近似：在原默认光的基础上补充主光/补光/轮廓光，让模型更有立体感。
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "Thumbnail|Scene")
+		bool bUseThreePointLighting = false;
+
+	// 主光强度（Key Light）。
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "Thumbnail|Scene", meta = (EditCondition = "bUseThreePointLighting", ClampMin = 0.0, ClampMax = 20.0, UIMin = 0.0, UIMax = 20.0))
+		float KeyLightIntensity = 6.0f;
+
+	// 补光强度（Fill Light）。
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "Thumbnail|Scene", meta = (EditCondition = "bUseThreePointLighting", ClampMin = 0.0, ClampMax = 20.0, UIMin = 0.0, UIMax = 20.0))
+		float FillLightIntensity = 1.6f;
+
+	// 轮廓光强度（Rim/Back Light）。
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "Thumbnail|Scene", meta = (EditCondition = "bUseThreePointLighting", ClampMin = 0.0, ClampMax = 20.0, UIMin = 0.0, UIMax = 20.0))
+		float RimBoost = 0.8f;
 
 	// If true, export a PNG to a local folder instead of creating a texture asset
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "Thumbnail|Export")

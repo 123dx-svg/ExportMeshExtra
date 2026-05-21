@@ -9,6 +9,8 @@
 #include "Engine/StaticMeshActor.h"
 #include "Components/SkyLightComponent.h"
 #include "Components/SphereReflectionCaptureComponent.h"
+#include "Components/DirectionalLightComponent.h"
+#include "Engine/DirectionalLight.h"
 #include "Engine/TextureCube.h"
 
 static USkeletalMesh* GetSkeletalMesh(USkeletalMeshComponent* SkelMeshComp)
@@ -180,6 +182,60 @@ void FThumbnailExporterScene::SetOverrideMaterials(const TArray<class UMaterialI
 void FThumbnailExporterScene::SetThumbnailCreationConfig(const FThumbnailCreationConfig& InThumbnailCreationConfig)
 {
 	ThumbnailCreationConfig = InThumbnailCreationConfig;
+
+	// 3 点光近似：按需懒生成 Key/Fill/Rim 三盏方向光。
+	if (InThumbnailCreationConfig.bUseThreePointLighting)
+	{
+		UWorld* World = GetWorld();
+		if (World)
+		{
+			auto EnsureLight = [&](TWeakObjectPtr<ADirectionalLight>& LightRef, const FRotator& Rot, float Intensity, const FLinearColor& Color)
+			{
+				ADirectionalLight* L = LightRef.Get();
+				if (!L)
+				{
+					FActorSpawnParameters SP;
+					SP.ObjectFlags |= RF_Transient;
+					L = World->SpawnActor<ADirectionalLight>(ADirectionalLight::StaticClass(), FVector::ZeroVector, Rot, SP);
+					LightRef = L;
+				}
+				if (L)
+				{
+					L->SetActorRotation(Rot);
+					if (UDirectionalLightComponent* Comp = Cast<UDirectionalLightComponent>(L->GetLightComponent()))
+					{
+						Comp->SetMobility(EComponentMobility::Movable);
+						Comp->SetIntensity(Intensity);
+						Comp->SetLightColor(Color);
+						Comp->CastShadows = false;
+						Comp->MarkRenderStateDirty();
+					}
+				}
+			};
+
+			EnsureLight(KeyLightActor,  FRotator(-35.0f,  30.0f, 0.0f), InThumbnailCreationConfig.KeyLightIntensity,  FLinearColor(1.0f, 0.98f, 0.95f));
+			EnsureLight(FillLightActor, FRotator(-15.0f, -120.0f, 0.0f), InThumbnailCreationConfig.FillLightIntensity, FLinearColor(0.85f, 0.9f, 1.0f));
+			EnsureLight(RimLightActor,  FRotator(-60.0f, 180.0f, 0.0f), InThumbnailCreationConfig.RimBoost,           FLinearColor(1.0f, 1.0f, 1.0f));
+		}
+	}
+	else
+	{
+		// 关闭时把已经生成的 3 点光强度调 0（保留 actor 避免反复 spawn/destroy）
+		auto DisableLight = [](TWeakObjectPtr<ADirectionalLight>& LightRef)
+		{
+			if (ADirectionalLight* L = LightRef.Get())
+			{
+				if (UDirectionalLightComponent* Comp = Cast<UDirectionalLightComponent>(L->GetLightComponent()))
+				{
+					Comp->SetIntensity(0.0f);
+					Comp->MarkRenderStateDirty();
+				}
+			}
+		};
+		DisableLight(KeyLightActor);
+		DisableLight(FillLightActor);
+		DisableLight(RimLightActor);
+	}
 
 	// 如果启用反射，配置天空光以提供反射源
 	if (InThumbnailCreationConfig.bEnableReflections)
