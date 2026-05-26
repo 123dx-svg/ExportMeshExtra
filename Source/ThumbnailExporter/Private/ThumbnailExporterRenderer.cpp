@@ -332,13 +332,16 @@ static void AutoCropAndScaleThumbnail(FObjectThumbnail& Thumbnail, int32 MaxEdge
 	}
 
 	// 根据裁剪参数调整边界
-	if (!bCropX)
+	// 单轴裁剪模式（输出方形）时，两个轴都紧贴内容裁剪以最大化利用画面
+	// 仅在两轴都未选中时才保留完整尺寸（理论上不会进入此函数）
+	const bool bSquareOutput = (bCropX != bCropY); // 单轴裁剪 → 方形输出
+	if (!bCropX && !bSquareOutput)
 	{
 		// 不裁剪 X 方向，保持完整宽度
 		Bounds.Min.X = 0;
 		Bounds.Max.X = Width;
 	}
-	if (!bCropY)
+	if (!bCropY && !bSquareOutput)
 	{
 		// 不裁剪 Y 方向，保持完整高度
 		Bounds.Min.Y = 0;
@@ -397,29 +400,45 @@ static void AutoCropAndScaleThumbnail(FObjectThumbnail& Thumbnail, int32 MaxEdge
 	}
 	else if (bOnlyXCrop)
 	{
-		// 只裁剪X轴：X方向填满，Y方向等比缩放（可能超出画布后裁剪），强制输出方形
+		// 只裁剪X轴：裁剪后内容等比缩放适配方形画布（最长边填满，短边居中，不裁切），强制输出方形
 		FinalWidth = MaxEdgeSize;
 		FinalHeight = MaxEdgeSize;
 
-		// X方向填满，Y方向等比缩放
-		ScaledWidth = MaxEdgeSize;
-		ScaledHeight = FMath::Max(1, FMath::RoundToInt(static_cast<float>(MaxEdgeSize) * static_cast<float>(CropHeight) / static_cast<float>(CropWidth)));
+		// 等比缩放：最长边填满画布，短边居中，不裁切
+		if (CropWidth >= CropHeight)
+		{
+			ScaledWidth = MaxEdgeSize;
+			ScaledHeight = FMath::Max(1, FMath::RoundToInt(static_cast<float>(MaxEdgeSize) * static_cast<float>(CropHeight) / static_cast<float>(CropWidth)));
+		}
+		else
+		{
+			ScaledHeight = MaxEdgeSize;
+			ScaledWidth = FMath::Max(1, FMath::RoundToInt(static_cast<float>(MaxEdgeSize) * static_cast<float>(CropWidth) / static_cast<float>(CropHeight)));
+		}
 
-		UE_LOG(LogTemp, Warning, TEXT("AutoCropAndScaleThumbnail - Only X crop: X fills %d, Y scales to %d (may exceed and be cropped), output square %d x %d"),
+		UE_LOG(LogTemp, Warning, TEXT("AutoCropAndScaleThumbnail - Only X crop: contain fit, scaled %d x %d, output square %d x %d"),
 			ScaledWidth, ScaledHeight, FinalWidth, FinalHeight);
 	}
 	else if (bOnlyYCrop)
 	{
-		// 只裁剪Y轴：Y方向填满，X方向等比缩放（可能超出画布后裁剪），强制输出方形
+		// 只裁剪Y轴：裁剪后内容等比缩放适配方形画布（最长边填满，短边居中，不裁切），强制输出方形
 		FinalWidth = MaxEdgeSize;
 		FinalHeight = MaxEdgeSize;
 
-		// Y方向填满，X方向等比缩放
-		ScaledHeight = MaxEdgeSize;
-		ScaledWidth = FMath::Max(1, FMath::RoundToInt(static_cast<float>(MaxEdgeSize) * static_cast<float>(CropWidth) / static_cast<float>(CropHeight)));
+		// 等比缩放：最长边填满画布，短边居中，不裁切
+		if (CropHeight >= CropWidth)
+		{
+			ScaledHeight = MaxEdgeSize;
+			ScaledWidth = FMath::Max(1, FMath::RoundToInt(static_cast<float>(MaxEdgeSize) * static_cast<float>(CropWidth) / static_cast<float>(CropHeight)));
+		}
+		else
+		{
+			ScaledWidth = MaxEdgeSize;
+			ScaledHeight = FMath::Max(1, FMath::RoundToInt(static_cast<float>(MaxEdgeSize) * static_cast<float>(CropHeight) / static_cast<float>(CropWidth)));
+		}
 
-		UE_LOG(LogTemp, Warning, TEXT("AutoCropAndScaleThumbnail - Only Y crop: Y fills %d, X scales to %d (may exceed and be cropped), output square %d x %d"),
-			ScaledHeight, ScaledWidth, FinalWidth, FinalHeight);
+		UE_LOG(LogTemp, Warning, TEXT("AutoCropAndScaleThumbnail - Only Y crop: contain fit, scaled %d x %d, output square %d x %d"),
+			ScaledWidth, ScaledHeight, FinalWidth, FinalHeight);
 	}
 	else
 	{
