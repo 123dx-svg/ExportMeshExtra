@@ -153,6 +153,7 @@ bool UPakExportSubsystem::PollProcessOutput(FString& OutStage, float& OutPercent
 	bool bFoundProgress = false;
 	for (const FString& Line : Lines)
 	{
+		UE_LOG(LogTemp, Log, TEXT("UAT> %s"), *Line);
 		FRegexMatcher Matcher(ProgressPattern, Line);
 		if (!Matcher.FindNext())
 		{
@@ -209,6 +210,14 @@ void UPakExportSubsystem::ShowProgressNotification()
 	Info.bFireAndForget = false;
 	Info.ExpireDuration = 0.0f;
 	Info.bUseThrobber = true;
+
+	FNotificationButtonInfo CancelButton(
+		FText::FromString(TEXT("取消")),
+		FText::FromString(TEXT("取消PAK打包")),
+		FSimpleDelegate::CreateUObject(this, &UPakExportSubsystem::CancelPakExport)
+	);
+	Info.ButtonDetails.Add(CancelButton);
+
 	NotificationPtr = FSlateNotificationManager::Get().AddNotification(Info);
 	if (NotificationPtr.IsValid())
 	{
