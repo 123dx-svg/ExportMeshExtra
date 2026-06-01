@@ -145,7 +145,7 @@ bool UPakExportSubsystem::PollProcessOutput(FString& OutStage, float& OutPercent
 		return false;
 	}
 
-	static const FRegexPattern ProgressPattern(TEXT("@progress\\s+(?:push\\s+|increment\\s+)?(\\d+)/(\\d+)(?:\\s+'([^']*)')?"));
+	static const FRegexPattern ProgressPattern(TEXT("\\((\\d+)/(\\d+)\\)"));
 
 	TArray<FString> Lines;
 	Output.ParseIntoArrayLines(Lines);
@@ -168,7 +168,7 @@ bool UPakExportSubsystem::PollProcessOutput(FString& OutStage, float& OutPercent
 		}
 
 		OutPercent = (static_cast<float>(Numerator) / static_cast<float>(Denominator)) * 100.0f;
-		OutStage = Matcher.GetCaptureGroup(3);
+		OutStage = Line.Left(Line.Find(TEXT("("))).TrimEnd();
 		CurrentProgress = OutPercent;
 		bFoundProgress = true;
 	}
