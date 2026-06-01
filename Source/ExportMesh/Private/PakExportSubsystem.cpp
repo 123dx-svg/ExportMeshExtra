@@ -139,7 +139,7 @@ void UPakExportSubsystem::LaunchUATProcess(const TArray<FString>& LevelPaths, co
 
 bool UPakExportSubsystem::PollProcessOutput(FString& OutStage, float& OutPercent)
 {
-	const FString Output = FPlatformProcess::ReadPipeOutput(ReadPipe);
+	const FString Output = FPlatformProcess::ReadPipe(ReadPipe);
 	if (Output.IsEmpty())
 	{
 		return false;
@@ -194,6 +194,10 @@ bool UPakExportSubsystem::GetProcessExitCode(int32& OutCode) const
 
 void UPakExportSubsystem::CleanupPipes()
 {
+	if (ProcessHandle.IsValid())
+	{
+		FPlatformProcess::CloseProc(ProcessHandle);
+	}
 	FPlatformProcess::ClosePipe(ReadPipe, WritePipe);
 	ReadPipe = nullptr;
 	WritePipe = nullptr;
