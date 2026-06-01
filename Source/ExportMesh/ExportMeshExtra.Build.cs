@@ -41,6 +41,7 @@ public class ExportMeshExtra : ModuleRules
 				"MeshMergeUtilities",
 				"AssetRegistry",
 				"UnrealEd",
+				"EditorSubsystem",
 				"DesktopPlatform",
 				"MeshDescription",
 				"StaticMeshDescription",
