@@ -83,6 +83,7 @@ void UExportMeshBPLibrary::MergeActorToStaticMesh(const FString& InBasePackageNa
 	InSettings.bBakeVertexDataToMesh = true;
 	InSettings.bMergeMaterials = false;  // 不合并材质，保留原始材质
 	InSettings.bMergePhysicsData = false;
+	InSettings.bPivotPointAtZero = true;  // 确保枢轴在世界原点（即蓝图根组件位置），避免偶发偏移
 	InSettings.bComputedLightMapResolution = false;
 
 	// 禁用可能导致问题的功能
@@ -2450,7 +2451,6 @@ int32 UExportMeshBPLibrary::SetMaterialInstancesParent(
 
 	return SuccessCount;
 }
-
 
 
 
