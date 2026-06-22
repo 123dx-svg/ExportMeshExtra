@@ -544,6 +544,27 @@ FString UExportMeshBPLibrary::OpenFileDialogWithAssetName()
 	return FString();
 }
 
+FString UExportMeshBPLibrary::OpenExportFolderDialog()
+{
+	IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get();
+	if (DesktopPlatform)
+	{
+		FString OutFolderName;
+		FString DefaultPath = FPaths::ProjectDir();
+
+		if (DesktopPlatform->OpenDirectoryDialog(
+			nullptr,
+			NSLOCTEXT("ExportMesh", "SelectFolder", "Select Folder").ToString(),
+			DefaultPath,
+			OutFolderName))
+		{
+			UE_LOG(LogTemp, Log, TEXT("OpenExportFolderDialog: Selected folder: %s"), *OutFolderName);
+			return OutFolderName;
+		}
+	}
+	return FString();
+}
+
 bool UExportMeshBPLibrary::ExportAssetToGLB(UObject* Asset, const FString& OutputPath)
 {
 	if (!Asset)
@@ -1807,6 +1828,210 @@ FBox UExportMeshBPLibrary::CalculateBlueprintMeshBounds(const TArray<UPrimitiveC
 	return CombinedBounds;
 }
 
+bool UExportMeshBPLibrary::GetAssetBoundingBoxSize(
+	const FAssetData& AssetData,
+	float& Length,
+	float& Width,
+	float& Height)
+{
+	Length = 0.0f;
+	Width = 0.0f;
+	Height = 0.0f;
+
+	if (!AssetData.IsValid())
+	{
+		UE_LOG(LogTemp, Error, TEXT("GetAssetBoundingBoxSize: Invalid AssetData"));
+		return false;
+	}
+
+	const FString AssetClassName = AssetData.AssetClassPath.GetAssetName().ToString();
+	FBox Bounds(ForceInit);
+
+	if (AssetClassName.Equals(TEXT("StaticMesh")))
+	{
+		UStaticMesh* Mesh = Cast<UStaticMesh>(AssetData.GetAsset());
+		if (!Mesh)
+		{
+			UE_LOG(LogTemp, Error, TEXT("GetAssetBoundingBoxSize: Failed to load StaticMesh"));
+			return false;
+		}
+		Bounds = Mesh->GetBoundingBox();
+	}
+	else if (AssetClassName.Equals(TEXT("SkeletalMesh")))
+	{
+		USkeletalMesh* SkelMesh = Cast<USkeletalMesh>(AssetData.GetAsset());
+		if (!SkelMesh)
+		{
+			UE_LOG(LogTemp, Error, TEXT("GetAssetBoundingBoxSize: Failed to load SkeletalMesh"));
+			return false;
+		}
+		// GetImportedBounds() returns FBoxSphereBounds; convert to full-size FBox (NOT half-extent)
+		Bounds = SkelMesh->GetImportedBounds().GetBox();
+	}
+	else if (AssetClassName.Equals(TEXT("Blueprint")) || AssetClassName.Contains(TEXT("Blueprint")))
+	{
+		UBlueprint* Blueprint = Cast<UBlueprint>(AssetData.GetAsset());
+		if (!Blueprint)
+		{
+			UE_LOG(LogTemp, Error, TEXT("GetAssetBoundingBoxSize: Failed to load Blueprint"));
+			return false;
+		}
+		TArray<UPrimitiveComponent*> Components;
+		GetComponentsFromBlueprintAsset(Blueprint, Components);
+		Bounds = CalculateBlueprintMeshBounds(Components);
+	}
+	else
+	{
+		UE_LOG(LogTemp, Error, TEXT("GetAssetBoundingBoxSize: Unsupported asset type: %s"), *AssetClassName);
+		return false;
+	}
+
+	if (!Bounds.IsValid)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("GetAssetBoundingBoxSize: Computed bounds are invalid for %s"), *AssetData.AssetName.ToString());
+		return false;
+	}
+
+	const FVector Size = Bounds.GetSize(); // full size in cm
+	Length = Size.X;
+	Width = Size.Y;
+	Height = Size.Z;
+
+	UE_LOG(LogTemp, Log, TEXT("GetAssetBoundingBoxSize: %s -> L=%.2f W=%.2f H=%.2f (cm)"),
+		*AssetData.AssetName.ToString(), Length, Width, Height);
+	return true;
+}
+
+bool UExportMeshBPLibrary::GenerateExternalAgentsJson(
+	const TArray<FAssetData>& SelectedAssets,
+	const FString& OutputDirectory,
+	const FString& OscSubCategory,
+	const FString& SemanticsType)
+{
+	if (OutputDirectory.IsEmpty())
+	{
+		UE_LOG(LogTemp, Error, TEXT("GenerateExternalAgentsJson: OutputDirectory is empty"));
+		return false;
+	}
+	if (SelectedAssets.Num() == 0)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("GenerateExternalAgentsJson: No assets provided"));
+		return false;
+	}
+
+	TSharedPtr<FJsonObject> RootObject = MakeShareable(new FJsonObject);
+
+	for (const FAssetData& AssetData : SelectedAssets)
+	{
+		if (!AssetData.IsValid())
+		{
+			continue;
+		}
+
+		const FString AssetName = AssetData.AssetName.ToString();
+		const FString AssetClassName = AssetData.AssetClassPath.GetAssetName().ToString();
+		const FString PathName = AssetData.GetObjectPathString();
+
+		float Length = 0.0f, Width = 0.0f, Height = 0.0f;
+		GetAssetBoundingBoxSize(AssetData, Length, Width, Height);
+
+		FString StaticMeshPath, SkeletalMeshPath, BlueprintPath;
+		if (AssetClassName.Equals(TEXT("StaticMesh")))
+		{
+			StaticMeshPath = PathName;
+		}
+		else if (AssetClassName.Equals(TEXT("SkeletalMesh")))
+		{
+			SkeletalMeshPath = PathName;
+		}
+		else if (AssetClassName.Equals(TEXT("Blueprint")) || AssetClassName.Contains(TEXT("Blueprint")))
+		{
+			BlueprintPath = PathName + TEXT("_C");
+		}
+
+		TSharedPtr<FJsonObject> Entry = MakeShareable(new FJsonObject);
+		Entry->SetStringField(TEXT("oscSubCategory"), OscSubCategory);
+		Entry->SetStringField(TEXT("semanticsType"), SemanticsType);
+		Entry->SetStringField(TEXT("staticMeshPath"), StaticMeshPath);
+		Entry->SetStringField(TEXT("skeletalMeshPath"), SkeletalMeshPath);
+		Entry->SetStringField(TEXT("blueprintPath"), BlueprintPath);
+		Entry->SetNumberField(TEXT("length"), Length);
+		Entry->SetNumberField(TEXT("width"), Width);
+		Entry->SetNumberField(TEXT("height"), Height);
+
+		RootObject->SetObjectField(AssetName, Entry);
+	}
+
+	FString JsonString;
+	TSharedRef<TJsonWriter<>> JsonWriter = TJsonWriterFactory<>::Create(&JsonString);
+	if (!FJsonSerializer::Serialize(RootObject.ToSharedRef(), JsonWriter))
+	{
+		UE_LOG(LogTemp, Error, TEXT("GenerateExternalAgentsJson: Failed to serialize JSON"));
+		return false;
+	}
+
+	const FString JsonPath = FPaths::Combine(OutputDirectory, TEXT("external_agents.json"));
+	if (!FFileHelper::SaveStringToFile(JsonString, *JsonPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
+	{
+		UE_LOG(LogTemp, Error, TEXT("GenerateExternalAgentsJson: Failed to write %s"), *JsonPath);
+		return false;
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("GenerateExternalAgentsJson: Wrote %d entries to %s"), SelectedAssets.Num(), *JsonPath);
+	return true;
+}
+
+FString UExportMeshBPLibrary::GetExportTimestamp()
+{
+	return FDateTime::Now().ToString(TEXT("%Y_%m%d_%H%M%S"));
+}
+
+bool UExportMeshBPLibrary::MakeAssetExportDir(
+	const FString& BaseDir,
+	const FAssetData& AssetData,
+	const FString& Timestamp,
+	FString& OutDir)
+{
+	OutDir.Empty();
+
+	if (BaseDir.IsEmpty())
+	{
+		UE_LOG(LogTemp, Error, TEXT("MakeAssetExportDir: BaseDir is empty"));
+		return false;
+	}
+	if (!AssetData.IsValid())
+	{
+		UE_LOG(LogTemp, Error, TEXT("MakeAssetExportDir: Invalid AssetData"));
+		return false;
+	}
+
+	const FString AssetName = AssetData.AssetName.ToString();
+	const FString Ts = Timestamp.IsEmpty() ? GetExportTimestamp() : Timestamp;
+
+	OutDir = FPaths::Combine(BaseDir, AssetName, Ts);
+
+	if (!IFileManager::Get().MakeDirectory(*OutDir, /*Tree=*/true) && !IFileManager::Get().DirectoryExists(*OutDir))
+	{
+		UE_LOG(LogTemp, Error, TEXT("MakeAssetExportDir: Failed to create directory %s"), *OutDir);
+		OutDir.Empty();
+		return false;
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("MakeAssetExportDir: Created %s"), *OutDir);
+	return true;
+}
+
+void UExportMeshBPLibrary::OpenFolderInExplorer(const FString& FolderPath)
+{
+	if (FolderPath.IsEmpty())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("OpenFolderInExplorer: Empty path"));
+		return;
+	}
+	const FString FullPath = FPaths::ConvertRelativePathToFull(FolderPath);
+	FPlatformProcess::ExploreFolder(*FullPath);
+}
+
 bool UExportMeshBPLibrary::GenerateManifestJson(
 	const FString& OutputDirectory,
 	const FString& AssetName,
@@ -1954,7 +2179,7 @@ bool UExportMeshBPLibrary::GenerateManifestJson(
 	return true;
 }
 
-bool UExportMeshBPLibrary::CompressDirectoryToZip(const FString& DirectoryPath, FString& OutZipPath)
+bool UExportMeshBPLibrary::CompressDirectoryToZip(const FString& DirectoryPath, FString& OutZipPath, bool bOpenFolderAfterZip)
 {
 	// 验证输入路径
 	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
@@ -2187,9 +2412,12 @@ bool UExportMeshBPLibrary::CompressDirectoryToZip(const FString& DirectoryPath, 
 		UE_LOG(LogTemp, Log, TEXT("CompressDirectoryToZip: Successfully created zip file: %s"), *OutZipPath);
 	}
 
-	// 自动打开文件夹（跨平台）
-	FPlatformProcess::ExploreFolder(*DirectoryPath);
-	UE_LOG(LogTemp, Log, TEXT("CompressDirectoryToZip: Opened folder: %s"), *DirectoryPath);
+	// 自动打开文件夹（跨平台）- 可通过参数关闭，避免批量导出时弹出多个窗口
+	if (bOpenFolderAfterZip)
+	{
+		FPlatformProcess::ExploreFolder(*DirectoryPath);
+		UE_LOG(LogTemp, Log, TEXT("CompressDirectoryToZip: Opened folder: %s"), *DirectoryPath);
+	}
 
 	return true;
 }

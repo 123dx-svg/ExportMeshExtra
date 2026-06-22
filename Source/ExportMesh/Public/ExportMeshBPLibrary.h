@@ -93,6 +93,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "ExportMeshExtra|FileDialog")
 	static FString OpenFileDialogWithAssetName();
 
+	// 仅返回用户选择的文件夹路径，不拼接资产名（用于批量导出的根目录选择）
+	UFUNCTION(BlueprintCallable, Category = "ExportMeshExtra|FileDialog")
+	static FString OpenExportFolderDialog();
+
 	// 导出资产到本地 GLB 格式
 	// 支持：StaticMesh、SkeletalMesh、包含StaticMesh的Blueprint
 	UFUNCTION(BlueprintCallable, Category = "ExportMeshExtra|Export")
@@ -119,7 +123,44 @@ public:
 	// 将压缩为：F:/SimForArt/Output/BP_WCLW_P7000/BP_WCLW_P7000.zip
 	// 原文件保留不删除，方便预览
 	UFUNCTION(BlueprintCallable, Category = "ExportMeshExtra|FileSystem")
-	static bool CompressDirectoryToZip(const FString& DirectoryPath, FString& OutZipPath);
+	static bool CompressDirectoryToZip(const FString& DirectoryPath, FString& OutZipPath, bool bOpenFolderAfterZip = true);
+
+	// 获取资产包围盒尺寸（单位：厘米），统一支持 StaticMesh / SkeletalMesh / Blueprint
+	// Length=X, Width=Y, Height=Z（完整尺寸，非半尺寸）
+	UFUNCTION(BlueprintCallable, Category = "ExportMeshExtra|Bounds", meta = (AutoCreateRefTerm = "AssetData"))
+	static bool GetAssetBoundingBoxSize(
+		const FAssetData& AssetData,
+		float& Length,
+		float& Width,
+		float& Height
+	);
+
+	// 为选中的资产生成 external_agents.json（写入到 OutputDirectory）
+	UFUNCTION(BlueprintCallable, Category = "ExportMeshExtra|Export", meta = (AutoCreateRefTerm = "SelectedAssets"))
+	static bool GenerateExternalAgentsJson(
+		const TArray<FAssetData>& SelectedAssets,
+		const FString& OutputDirectory,
+		const FString& OscSubCategory = TEXT("car"),
+		const FString& SemanticsType = TEXT("Unknown")
+	);
+
+	// 获取导出时间戳字符串，格式 %Y_%m%d_%H%M%S（例如 2026_0622_151100）
+	UFUNCTION(BlueprintPure, Category = "ExportMeshExtra|Export")
+	static FString GetExportTimestamp();
+
+	// 为单个资产构建并创建导出目录：{BaseDir}/{资产名}/{Timestamp}
+	// 若 Timestamp 为空则内部自动生成。OutDir 返回最终绝对/完整目录路径。
+	UFUNCTION(BlueprintCallable, Category = "ExportMeshExtra|Export", meta = (AutoCreateRefTerm = "AssetData"))
+	static bool MakeAssetExportDir(
+		const FString& BaseDir,
+		const FAssetData& AssetData,
+		const FString& Timestamp,
+		FString& OutDir
+	);
+
+	// 在系统文件管理器中打开指定文件夹
+	UFUNCTION(BlueprintCallable, Category = "ExportMeshExtra|FileSystem")
+	static void OpenFolderInExplorer(const FString& FolderPath);
 
 	// 从Blueprint资产中获取所有使用指定父材质的材质实例
 	// AssetData: 要检查的资产数据（仅对Blueprint资产生效）
