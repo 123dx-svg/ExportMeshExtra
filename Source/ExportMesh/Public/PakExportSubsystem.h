@@ -25,7 +25,8 @@ UENUM(BlueprintType)
 enum class EPakExportState : uint8
 {
 	Idle UMETA(DisplayName = "空闲"),
-	Running UMETA(DisplayName = "运行中"),
+	Cooking UMETA(DisplayName = "Cook中"),
+	Packing UMETA(DisplayName = "打包中"),
 	Completing UMETA(DisplayName = "完成中"),
 	Cancelling UMETA(DisplayName = "取消中"),
 	Failed UMETA(DisplayName = "失败")
@@ -67,11 +68,15 @@ private:
 	void* ReadPipe = nullptr;
 	void* WritePipe = nullptr;
 	FString OutputPakPath;
+	TArray<FString> PendingLevelPackageNames;
+	FString ResponseFilePath;
 	TSharedPtr<SNotificationItem> NotificationPtr;
 	float CurrentProgress = 0.0f;
 	FTSTicker::FDelegateHandle TickerHandle;
 
-	void LaunchUATProcess(const TArray<FString>& LevelPaths, const FString& ArchiveDir);
+	void LaunchCookProcess(const TArray<FString>& LevelPackageNames);
+	void LaunchPakProcess();
+	bool BuildPakResponseFile();
 	bool PollProcessOutput(FString& OutStage, float& OutPercent);
 	void KillProcess();
 	bool IsProcessRunningInternal() const;
