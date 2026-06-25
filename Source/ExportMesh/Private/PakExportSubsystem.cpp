@@ -85,7 +85,7 @@ bool UPakExportSubsystem::StartPakExport(const TArray<FAssetData>& LevelAssets)
 	}
 
 	OutputPakPath = SelectedFiles[0];
-	const FString ArchiveDir = FPaths::ProjectDir() / TEXT("Saved/StagedPak");
+	const FString ArchiveDir = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / TEXT("Saved/StagedPak"));
 
 	State = EPakExportState::Running;
 	CurrentProgress = 0.0f;
@@ -99,12 +99,12 @@ void UPakExportSubsystem::LaunchUATProcess(const TArray<FString>& LevelPaths, co
 {
 	FString UATPath;
 #if PLATFORM_WINDOWS
-	UATPath = FPaths::EngineDir() / TEXT("Build/BatchFiles/RunUAT.bat");
+	UATPath = FPaths::ConvertRelativePathToFull(FPaths::EngineDir() / TEXT("Build/BatchFiles/RunUAT.bat"));
 #else
-	UATPath = FPaths::EngineDir() / TEXT("Build/BatchFiles/RunUAT.sh");
+	UATPath = FPaths::ConvertRelativePathToFull(FPaths::EngineDir() / TEXT("Build/BatchFiles/RunUAT.sh"));
 #endif
 
-	FString ProjectPath = FPaths::GetProjectFilePath();
+	FString ProjectPath = FPaths::ConvertRelativePathToFull(FPaths::GetProjectFilePath());
 	FString PlatformStr;
 #if PLATFORM_WINDOWS
 	PlatformStr = TEXT("Win64");
