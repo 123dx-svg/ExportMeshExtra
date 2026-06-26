@@ -97,6 +97,18 @@ bool UPakExportSubsystem::StartPakExport(const TArray<FAssetData>& LevelAssets)
 
 	OutputPakPath = SelectedFiles[0];
 
+	// 在文件名后追加优先级后缀：Name_P<priority>.pak（_P 让 UE/SimOne 识别为高优先级 patch 包）
+	{
+		const FString PakDir = FPaths::GetPath(OutputPakPath);
+		const FString PakBaseName = FPaths::GetBaseFilename(OutputPakPath);
+		FString PakExt = FPaths::GetExtension(OutputPakPath);
+		if (PakExt.IsEmpty())
+		{
+			PakExt = TEXT("pak");
+		}
+		OutputPakPath = PakDir / FString::Printf(TEXT("%s_P%d.%s"), *PakBaseName, PakPriority, *PakExt);
+	}
+
 	State = EPakExportState::Cooking;
 	CurrentProgress = 0.0f;
 	LaunchCookProcess(PendingLevelPackageNames);
@@ -590,4 +602,14 @@ bool UPakExportSubsystem::IsPakExportRunning() const
 float UPakExportSubsystem::GetPakExportProgress() const
 {
 	return CurrentProgress;
+}
+
+void UPakExportSubsystem::SetPakPriority(int32 Priority)
+{
+	PakPriority = Priority;
+}
+
+int32 UPakExportSubsystem::GetPakPriority() const
+{
+	return PakPriority;
 }

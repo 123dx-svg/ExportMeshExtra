@@ -56,6 +56,12 @@ public:
 	UFUNCTION(BlueprintPure, Category = "ExportMeshExtra|PakExport")
 	float GetPakExportProgress() const;
 
+	UFUNCTION(BlueprintCallable, Category = "ExportMeshExtra|PakExport")
+	void SetPakPriority(int32 Priority);
+
+	UFUNCTION(BlueprintPure, Category = "ExportMeshExtra|PakExport")
+	int32 GetPakPriority() const;
+
 	UPROPERTY(BlueprintAssignable, Category = "ExportMeshExtra|PakExport")
 	FOnPakExportComplete OnComplete;
 
@@ -72,6 +78,7 @@ private:
 	FString ResponseFilePath;
 	TSharedPtr<SNotificationItem> NotificationPtr;
 	float CurrentProgress = 0.0f;
+	int32 PakPriority = 10;
 	FTSTicker::FDelegateHandle TickerHandle;
 
 	void LaunchCookProcess(const TArray<FString>& LevelPackageNames);
