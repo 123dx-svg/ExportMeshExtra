@@ -184,8 +184,7 @@ bool UPakExportSubsystem::BuildPakResponseFile()
 		AssetRegistry.GetDependencies(
 			PackageName,
 			Dependencies,
-			UE::AssetRegistry::EDependencyCategory::Package,
-			UE::AssetRegistry::EDependencyQuery::Hard
+			UE::AssetRegistry::EDependencyCategory::Package
 		);
 
 		for (const FName Dependency : Dependencies)
