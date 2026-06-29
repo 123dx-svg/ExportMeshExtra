@@ -63,13 +63,18 @@ bool UPakExportSubsystem::StartPakExport(const TArray<FAssetData>& LevelAssets)
 	ResponseFilePath.Empty();
 	for (const FAssetData& Asset : LevelAssets)
 	{
-		if (Asset.AssetClassPath.GetAssetName() != FName("World"))
+		if (!Asset.IsValid())
 		{
-			UE_LOG(LogTemp, Warning, TEXT("PakExport: Asset %s is not a Level/World"), *Asset.AssetName.ToString());
-			return false;
+			continue;
 		}
 
 		PendingLevelPackageNames.Add(Asset.PackageName.ToString());
+	}
+
+	if (PendingLevelPackageNames.IsEmpty())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("PakExport: No valid assets to export"));
+		return false;
 	}
 
 	IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get();
