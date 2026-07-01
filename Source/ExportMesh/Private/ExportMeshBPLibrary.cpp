@@ -1955,9 +1955,10 @@ bool UExportMeshBPLibrary::GenerateExternalAgentsJson(
 		Entry->SetStringField(TEXT("staticMeshPath"), StaticMeshPath);
 		Entry->SetStringField(TEXT("skeletalMeshPath"), SkeletalMeshPath);
 		Entry->SetStringField(TEXT("blueprintPath"), BlueprintPath);
-		Entry->SetNumberField(TEXT("length"), Length);
-		Entry->SetNumberField(TEXT("width"), Width);
-		Entry->SetNumberField(TEXT("height"), Height);
+		// 包围盒尺寸从厘米转换为米（GetAssetBoundingBoxSize 返回厘米）
+		Entry->SetNumberField(TEXT("length"), Length / 100.0f);
+		Entry->SetNumberField(TEXT("width"), Width / 100.0f);
+		Entry->SetNumberField(TEXT("height"), Height / 100.0f);
 
 		RootObject->SetObjectField(AssetName, Entry);
 	}
@@ -2679,6 +2680,5 @@ int32 UExportMeshBPLibrary::SetMaterialInstancesParent(
 
 	return SuccessCount;
 }
-
 
 
